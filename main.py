@@ -16,11 +16,14 @@ Run with:
 """
 
 import os
+import json
+import asyncio
 from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -208,6 +211,130 @@ async def run_research(
         tickers=saved["tickers"],
         intents=saved["intents"],
         created_at=saved["created_at"]
+    )
+
+
+@app.post("/research/stream")
+async def run_research_stream(
+    request: ResearchRequest,
+    user: dict = Depends(get_current_user)
+):
+    """
+    SSE streaming version of /research.
+    Emits agent progress events in real-time, then a final `done` event with the full result.
+    
+    Event format:  data: {"type": "...", "payload": {...}}\n\n
+    Event types:
+      agent_start      — agent just started working
+      agent_done       — agent finished
+      researcher_step  — granular sub-step inside Researcher
+      complete         — final result (report, sources, tickers, id, etc.)
+      error            — something went wrong
+    """
+    if not request.query or not request.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    if len(request.query) > 500:
+        raise HTTPException(status_code=400, detail="Query too long (max 500 characters)")
+
+    print(f"\n[API] Stream research from user {user['id']}: {request.query}")
+
+    # Queue to bridge sync LangGraph callbacks → async SSE generator
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def emit(event_type: str, payload: dict):
+        """Called from sync LangGraph threads — put onto the async queue."""
+        loop.call_soon_threadsafe(
+            queue.put_nowait,
+            json.dumps({"type": event_type, "payload": payload})
+        )
+
+    async def run_committee():
+        """Run the blocking committee.research() in a thread pool."""
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: committee.research(request.query, emit=emit)
+            )
+            return result
+        except Exception as e:
+            loop.call_soon_threadsafe(queue.put_nowait, json.dumps({
+                "type": "error",
+                "payload": {"message": str(e)}
+            }))
+            return None
+
+    async def event_stream():
+        # Kick off the committee in the background
+        task = asyncio.create_task(run_committee())
+
+        SENTINEL = "__DONE__"
+
+        # Stream queue events until the task finishes
+        while True:
+            try:
+                # Poll with a timeout so we can detect task completion
+                msg = await asyncio.wait_for(queue.get(), timeout=0.5)
+                yield f"data: {msg}\n\n"
+            except asyncio.TimeoutError:
+                if task.done():
+                    # Drain any remaining events
+                    while not queue.empty():
+                        msg = queue.get_nowait()
+                        yield f"data: {msg}\n\n"
+                    break
+                # Keep-alive ping so proxy/browser doesn't time out
+                yield ": ping\n\n"
+                continue
+
+        # Task finished — get the result and save it
+        result = task.result()
+        if result is None:
+            return
+
+        report   = result.get("final_report", "")
+        sources  = result.get("sources", [])
+        tickers  = result.get("plan", {}).get("tickers", [])
+        intents  = result.get("plan", {}).get("intents", [])
+
+        if not report:
+            yield f"data: {json.dumps({'type': 'error', 'payload': {'message': 'No report generated'}})}\n\n"
+            return
+
+        # Save to Supabase
+        saved_id = "unsaved"
+        saved_at = datetime.utcnow().isoformat()
+        try:
+            user_supabase = create_client(
+                os.getenv("SUPABASE_URL"),
+                os.getenv("SUPABASE_ANON_KEY")
+            )
+            user_supabase.auth.set_session(user["token"], "")
+            insert_response = user_supabase.table("reports").insert({
+                "user_id": user["id"],
+                "query":   request.query,
+                "report":  report,
+                "sources": sources,
+                "tickers": tickers,
+                "intents": intents,
+            }).execute()
+            saved = insert_response.data[0]
+            saved_id = saved["id"]
+            saved_at = saved["created_at"]
+            print(f"[API] Stream report saved: {saved_id}")
+        except Exception as e:
+            print(f"[API] Save error: {e}")
+
+        # Final event — frontend can now render the report
+        yield f"data: {json.dumps({'type': 'complete', 'payload': {'id': saved_id, 'query': request.query, 'report': report, 'sources': sources, 'tickers': tickers, 'intents': intents, 'created_at': saved_at}})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
     )
 
 
