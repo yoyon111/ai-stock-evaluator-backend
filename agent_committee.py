@@ -42,6 +42,7 @@ class AgentState(TypedDict):
     cycle_count: int
     writer_verdict: str
     final_report: str
+    risk_flags: str
     sources: list
     _emit: object   # streaming callback injected at runtime
 
@@ -742,10 +743,72 @@ WEAK: [what's missing]"""
         return "\n\n".join(sections)
 
 
+class RiskAnalyst:
+    """
+    Adversarial agent — runs after the Writer and specifically looks for
+    what could go wrong. Separate from the main committee which is optimized
+    to build a coherent thesis, not poke holes in it.
+    """
+
+    def __init__(self, llm):
+        self.llm = llm
+
+    def process(self, state: AgentState) -> AgentState:
+        emit = state.get("_emit")
+
+        if emit:
+            emit("agent_start", {
+                "agent": "risk", "label": "Risk Analyst", "icon": "🚨",
+                "message": "Scanning for red flags the main committee may have missed..."
+            })
+
+        prompt = f"""You are an adversarial risk analyst. Your only job is to find what could go wrong.
+The main research committee has already built a thesis — your job is to stress-test it.
+
+User Query: {state['user_query']}
+Tickers: {state['plan']['tickers']}
+
+FINAL REPORT (the thesis to stress-test):
+{state['final_report']}
+
+RAW RESEARCH DATA:
+{state['research_data']}
+
+Look specifically for:
+- **Valuation risk**: Is the stock pricing in perfection? What happens if growth slows even slightly?
+- **Balance sheet risk**: Debt levels, interest coverage, cash burn rate
+- **Earnings quality**: Any one-time items inflating results? Revenue recognition concerns?
+- **Insider activity**: Any significant insider selling signals in the data?
+- **Upcoming catalysts that could hurt**: Earnings dates, lock-up expirations, regulatory decisions
+- **Competitive threats**: Specific named competitors gaining ground
+- **Macro sensitivity**: How exposed is this to rate changes, recession, or sector rotation?
+- **What the thesis assumes that might not be true**: Call out the key assumptions baked into the bullish case
+
+Be specific and blunt. No hedging. If a risk is serious, say so clearly.
+If the data genuinely doesn't support a particular risk, skip it — don't manufacture concerns.
+
+Format as a list of discrete risk items. Each item should be:
+**[Risk Category]**: One sentence on what the risk is. One sentence on why it matters or what triggers it.
+
+End with a one-line overall risk summary: LOW / MEDIUM / HIGH risk profile and the single biggest reason why."""
+
+        response = self.llm.invoke([HumanMessage(content=prompt)])
+        state["risk_flags"] = response.content
+
+        if emit:
+            emit("agent_done", {
+                "agent": "risk", "label": "Risk Analyst", "icon": "🚨",
+                "message": "Risk analysis complete",
+            })
+
+        state["messages"].append(AIMessage(content="Risk Analyst: Complete"))
+        return state
+
+
 def route_after_writer(state: AgentState) -> str:
     if state.get("writer_verdict") == "WEAK":
         return "moderator"
-    return END
+    return "risk_analyst"
 
 
 class InvestmentResearchCommittee:
@@ -765,6 +828,7 @@ class InvestmentResearchCommittee:
         self.qual       = QualAnalyst(self.llm)
         self.moderator  = ModeratorAgent(self.llm)
         self.writer     = WriterAgent(self.llm)
+        self.risk       = RiskAnalyst(self.llm)
         self.graph      = self._build_graph()
 
     def _build_graph(self) -> StateGraph:
@@ -775,6 +839,7 @@ class InvestmentResearchCommittee:
         workflow.add_node("qual_analyst",  self.qual.process)
         workflow.add_node("moderator",     self.moderator.process)
         workflow.add_node("writer",        self.writer.process)
+        workflow.add_node("risk_analyst",  self.risk.process)
 
         workflow.set_entry_point("planner")
         workflow.add_edge("planner", "researcher")
@@ -789,7 +854,9 @@ class InvestmentResearchCommittee:
             {"researcher": "researcher", "quant_analyst": "quant_analyst", "writer": "writer"})
 
         workflow.add_conditional_edges("writer", route_after_writer,
-            {"moderator": "moderator", END: END})
+            {"moderator": "moderator", "risk_analyst": "risk_analyst"})
+
+        workflow.add_edge("risk_analyst", END)
 
         return workflow.compile()
 
@@ -813,6 +880,7 @@ class InvestmentResearchCommittee:
             "cycle_count": 0,
             "writer_verdict": "",
             "final_report": "",
+            "risk_flags": "",
             "sources": [],
             "_emit": emit,
         }
