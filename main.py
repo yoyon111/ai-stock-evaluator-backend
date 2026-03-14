@@ -111,6 +111,7 @@ class ResearchResponse(BaseModel):
     id: str
     query: str
     report: str
+    risk_flags: str = ""
     sources: list
     tickers: list
     intents: list
@@ -292,10 +293,11 @@ async def run_research_stream(
         if result is None:
             return
 
-        report   = result.get("final_report", "")
-        sources  = result.get("sources", [])
-        tickers  = result.get("plan", {}).get("tickers", [])
-        intents  = result.get("plan", {}).get("intents", [])
+        report      = result.get("final_report", "")
+        risk_flags  = result.get("risk_flags", "")
+        sources     = result.get("sources", [])
+        tickers     = result.get("plan", {}).get("tickers", [])
+        intents     = result.get("plan", {}).get("intents", [])
 
         if not report:
             yield f"data: {json.dumps({'type': 'error', 'payload': {'message': 'No report generated'}})}\n\n"
@@ -312,11 +314,12 @@ async def run_research_stream(
             user_supabase.auth.set_session(user["token"], "")
             insert_response = user_supabase.table("reports").insert({
                 "user_id": user["id"],
-                "query":   request.query,
-                "report":  report,
-                "sources": sources,
-                "tickers": tickers,
-                "intents": intents,
+                "query":      request.query,
+                "report":     report,
+                "risk_flags": risk_flags,
+                "sources":    sources,
+                "tickers":    tickers,
+                "intents":    intents,
             }).execute()
             saved = insert_response.data[0]
             saved_id = saved["id"]
@@ -326,7 +329,7 @@ async def run_research_stream(
             print(f"[API] Save error: {e}")
 
         # Final event — frontend can now render the report
-        yield f"data: {json.dumps({'type': 'complete', 'payload': {'id': saved_id, 'query': request.query, 'report': report, 'sources': sources, 'tickers': tickers, 'intents': intents, 'created_at': saved_at}})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'payload': {'id': saved_id, 'query': request.query, 'report': report, 'risk_flags': risk_flags, 'sources': sources, 'tickers': tickers, 'intents': intents, 'created_at': saved_at}})}\n\n"
 
     return StreamingResponse(
         event_stream(),
