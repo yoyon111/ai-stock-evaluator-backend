@@ -1,26 +1,12 @@
-# Investment Research AI Committee
-# Phase 1 + Phase 2 Dependencies
-
-# Core LangChain and LangGraph
-langchain
-langchain-openai
-langgraph
-langchain-core
-
-# OpenAI
-openai
-
-# Financial Data
-yfinance
-
-# Web Search
-tavily-python
-
-# Utilities
-python-dotenv
-pydantic
-
-# Phase 2 — FastAPI Backend
-fastapi
-uvicorn
-supabase
+langchain==0.3.25
+langchain-openai==0.3.16
+langgraph==0.3.34
+langchain-core==0.3.58
+openai==1.77.0
+yfinance==0.2.51
+tavily-python==0.5.0
+python-dotenv==1.1.0
+pydantic==2.11.4
+fastapi==0.115.12
+uvicorn==0.34.2
+supabase==2.15.1
