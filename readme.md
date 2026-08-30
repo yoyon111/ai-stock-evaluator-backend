@@ -1,59 +1,102 @@
-This one is the backend/API for the first project. Your code specifically describes it as a FastAPI backend for an "Investment Research AI Committee," with /research, /reports, and /health endpoints and Supabase JWT authentication.
+# AI Stock Evaluator Backend
 
-AI Stock Evaluator — Backend
+FastAPI backend for an AI-powered investment research application.
 
-FastAPI backend for an AI-powered investment research application. The backend orchestrates a multi-agent research committee, gathers external information, generates investment research reports, and stores user reports in Supabase.
+## Overview
 
-Overview
+This repository contains the backend for the AI Stock Evaluator application.
 
-This service powers the backend of the AI Stock Evaluator application.
+The backend receives research questions from the frontend, coordinates AI research agents, gathers external information, generates investment research reports, and stores reports for authenticated users.
 
-Users submit natural-language research questions such as:
+## Features
 
-"Compare Google's and Meta's latest earnings."
+- FastAPI REST API
+- AI-powered investment research
+- Multi-agent research pipeline
+- External web research
+- AI-generated research reports
+- Supabase authentication
+- Report storage
+- Streaming research responses
+- Health-check endpoint
 
-The backend passes the request through an AI research committee, gathers relevant information, generates a structured research report, and saves the result for the authenticated user.
+## API Endpoints
 
-Features
-🤖 Multi-agent investment research
-🔎 External web research
-📈 Stock and company analysis
-📝 AI-generated research reports
-🔐 Supabase JWT authentication
-💾 Persistent report storage
-⚡ FastAPI REST API
-❤️ Health-check endpoint
-🌊 Streaming support for research responses
-API Endpoints
-Method	Endpoint	Description
-GET	/health	Check API status
-POST	/research	Run an AI research request
-GET	/reports	Retrieve the user's previous reports
-GET	/reports/{id}	Retrieve a specific report
-DELETE	/reports/{id}	Delete a report
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | /health | Check API status |
+| POST | /research | Run an AI research request |
+| GET | /reports | Get the user's saved reports |
+| GET | /reports/{id} | Get a specific report |
+| DELETE | /reports/{id} | Delete a report |
 
-All endpoints except /health require a valid Supabase access token.
+## Architecture
 
-Example Research Request
-{
-  "query": "Compare Google's and Meta's latest earnings"
-}
-Architecture
 Frontend
-   │
-   │ HTTP / JWT
-   ▼
+↓
 FastAPI Backend
-   │
-   ├── Authentication
-   │      └── Supabase
-   │
-   ├── Research API
-   │
-   ├── AI Research Committee
-   │      ├── Research agents
-   │      ├── Analysis agents
-   │      └── Report generation
-   │
-   └── Report Storage
-          └── Supabase
+↓
+AI Research Agents
+↓
+External Research Sources
+↓
+Generated Research Report
+↓
+Supabase
+
+## Tech Stack
+
+- Python
+- FastAPI
+- Pydantic
+- Supabase
+- OpenAI
+- Tavily
+- Uvicorn
+
+## Setup
+
+### Clone the repository
+
+    git clone https://github.com/yoyon111/ai-stock-evaluator-backend.git
+    cd ai-stock-evaluator-backend
+
+### Install dependencies
+
+    pip install -r requirements.txt
+
+### Environment Variables
+
+Create a `.env` file and add the required API credentials:
+
+    SUPABASE_URL=your_supabase_url
+    SUPABASE_ANON_KEY=your_supabase_anon_key
+    OPENAI_API_KEY=your_openai_api_key
+    TAVILY_API_KEY=your_tavily_api_key
+
+### Run the server
+
+    uvicorn main:app --reload
+
+The API will be available at:
+
+    http://localhost:8000
+
+FastAPI's interactive documentation is available at:
+
+    http://localhost:8000/docs
+
+## Example Research Request
+
+    {
+      "query": "Compare Google's and Meta's latest earnings"
+    }
+
+## Related Project
+
+Frontend:
+https://github.com/yoyon111/AI-stock-evaluator
+
+## Disclaimer
+
+This project is intended for educational and research purposes. Generated analysis should not be considered financial advice.
